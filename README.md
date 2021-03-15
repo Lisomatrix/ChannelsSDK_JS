@@ -2,6 +2,11 @@
 
 Check the main project [here](https://lisomatrix.github.io/Channels)
 
+You can download using
+```
+npm i channels_sdk
+```
+
 If you want to connect to **channels** with your browser, then this is the right place for you!<br>
 First get the code from [here](https://github.com/Lisomatrix/ChannelsSDK_JS) and check the authentication section for creating a `JWT Token`.<br>
 
