@@ -1,5 +1,6 @@
 var channels = require('./channels_pb.js');
 
+// Define publish events
 const NewEvent = channels.NewEvent;
 const PublishRequest = channels.PublishRequest;
 const SubscribeRequest = channels.SubscribeRequest;
@@ -10,6 +11,7 @@ const OnlineStatusUpdate = channels.OnlineStatusUpdate;
 const ClientJoin = channels.ClientJoin;
 const ClientLeave = channels.ClientLeave;
 
+// Class that handles channel communication
 class Channel {
 
     constructor(channelsSDK, data) {
@@ -46,6 +48,7 @@ class Channel {
         this._channelsSDK = channelsSDK;
     }
 
+    // Subscribe to given channel
     subscribe(onSubscribed) {
 
         this._channelsSDK.subscribe(this._channelID, () => {
@@ -55,26 +58,33 @@ class Channel {
         });
     }
 
+    // Publish event into channel
+    // If no callback given, then event won't be stored
     publish(eventType, payload, cb) {
-        channelsSDK.publish(this._channelID, eventType, payload, cb);
+        this._channelsSDK.publish(this._channelID, eventType, payload, cb);
     }
 
+    // Channel events callback
     setOnMessage(onMessage) {
         this._onMessage = onMessage;
     }
 
+    // Channel Initial status update
     setOnInitialStatusUpdate(onInitialStatusUpdate) {
         this._onInitialStatusUpdateCB = onInitialStatusUpdate;
     }
 
+    // Channel status updates changes
     setOnOnlineStatusUpdate(onOnlineStatusUpdateCB) {
         this._onOnlineStatusUpdateCB = onOnlineStatusUpdateCB;
     }
 
+    // When a user joins callback
     setOnJoin(onJoinCB) {
         this._onJoinChannelCB = onJoinCB;
     }
 
+    // When a user leaves callback
     setOnLeave(onLeaveCB) {
         this._onLeaveChannelCB = onLeaveCB;
     }
@@ -148,42 +158,52 @@ class Channel {
             this._onLeaveChannel(clientID);
     }
 
+    // Get current channel presence data
     getPresenceStatus() {
         return this._presenceStatus;
     }
 
+    // Get channelID
     getID() {
         return this._channelID;
     }
 
+    // Is channel closed
     isClosed() {
         return this._isClosed;
     }
 
+    // Is channel persistent
     isPersistent() {
         return this._isPersistent;
     }
 
+    // Is channel private
     isPrivate() {
         return this._isPrivate;
     }
 
+    // Does channel have presence
     isPresence() {
         return this._isPresence;
     }
 
+    // Get last X events
     fetchLastEvents(amount) {
         return this._channelsSDK.fetchLastChannelEvents(this._channelID, amount);
     }
 
+    // Get last X event since given timestamp
     fetchLastEventsSince(amount, timestamp) {
         return this._channelsSDK.fetchLastChannelEventsSince(this._channelID, amount, timestamp)
     }
 
+    // Get all events since given timestamp
     fetchEventsSince(timestamp) {
         return this._channelsSDK.fetchChannelEventsSince(this._channelID, timestamp);
     }
 
+    // Get events between given timestamps
     fetchEventsBetween(sinceTimestamp, toTimestamp) {
         return this._channelsSDK.fetchChannelEventsBetween(this._channelID, sinceTimestamp, toTimestamp)
     }
@@ -219,14 +239,17 @@ class ChannelsSDK {
         this._isSecure = initParams.secure;
     }
 
+    // Access to new channel callback
     setOnChannelAdded(onChannelAdded) {
         this._onChannelAdded(onChannelAdded);
     }
 
+    // Channel access removed callback
     setOnChannelRemoved(onChannelRemoved) {
         this._onChannelRemoved = onChannelRemoved;
     }
 
+    // Connect to server with given deviceID or just "" for server to generate
     connect(deviceID, onConnectionStatusChanged) {
         this._onConnectionStatusChanged = onConnectionStatusChanged;
         const prefix = this._isSecure ? "wss" : "ws";
@@ -261,6 +284,7 @@ class ChannelsSDK {
         }
     }
 
+    // Send event to server
     send(newEvent) {
         if (this._isConnected) {
             this._ws.send(newEvent.serializeBinary())
@@ -269,6 +293,7 @@ class ChannelsSDK {
         }
     }
 
+    // Publish event to channel
     publish(channelID, eventType, payload, cb) {
         const request = this._createPublishRequest(eventType, channelID, payload, cb != null);
 
@@ -280,6 +305,7 @@ class ChannelsSDK {
         this.send(newEvent);
     }
 
+    // Subscribe to channel
     subscribe(channelID, cb) {
         let subscribeRequest = this._createSubscribeRequest(channelID);
 
@@ -294,6 +320,8 @@ class ChannelsSDK {
         this.send(newEvent);
     }
 
+    // Get channel by it's ID, first you should get private
+    // and public channels
     getChannel(id) {
         for (let i = 0; i < this._channels.length; ++i) {
             const channel = this._channels[i];
@@ -305,6 +333,7 @@ class ChannelsSDK {
         return null;
     }
 
+    // Fetch all app public channels
     async fetchPublicChannels() {
         const request = this._prepareRequest('GET', '/channel/open');
 
@@ -317,8 +346,9 @@ class ChannelsSDK {
         return channs;
     }
 
+    // Fetch user private channels
     async fetchPrivateChannels() {
-        const request = this._prepareRequest('GET', '/channel/closed');
+        const request = this._prepareRequest('GET', '/channel/private');
 
         let channs = (await (await fetch(request)).json()).channels;
 
@@ -329,6 +359,7 @@ class ChannelsSDK {
         return channs;
     }
 
+    // Get last X events from channel
     async fetchLastChannelEvents(channelID, amount) {
         const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount);
 
@@ -337,6 +368,7 @@ class ChannelsSDK {
         return events;
     }
 
+    // Get last X events from channel since given timestamp
     async fetchLastChannelEventsSince(channelID, amount, timestamp) {
         const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount + '/last/' + timestamp);
 
@@ -345,6 +377,7 @@ class ChannelsSDK {
         return events;
     }
 
+    // Get events from channel since given timestamp
     async fetchChannelEventsSince(channelID, timestamp) {
         const request = this._prepareRequest('GET', '/c/' + channelID + '/sync/' + timestamp);
 
@@ -353,6 +386,7 @@ class ChannelsSDK {
         return events;
     }
 
+    // Get events from channel between given timestamps
     async fetchChannelEventsBetween(channelID, sinceTimestamp, toTimestamp) {
         const request = this._prepareRequest('GET', '/sync/' + channelID + '/' + sinceTimestamp + "/to/" + toTimestamp);
 
@@ -361,6 +395,7 @@ class ChannelsSDK {
         return events;
     }
 
+    // Publish event into channel
     async publishToChannel(channelID, eventType, payload) {
         const request = this._prepareRequest('POST', '/channel/' + channelID + '/publish/');
         request.body = JSON.stringify({
@@ -390,8 +425,6 @@ class ChannelsSDK {
 
     _onMessage(event) {
         const newEvent = NewEvent.deserializeBinary(event.data);
-
-        console.log(newEvent);
 
         switch (newEvent.getType()) {
             case NewEvent.NewEventType.ACK: {
@@ -511,9 +544,8 @@ class ChannelsSDK {
     }
 
     _onError(event) {
-        console.log(event);
         this._isConnected = false;
-        this._log("Connection error!");
+        this._log("Connection error, code: " + event.code + " reason: " + event.reason);
 
         if (this._onConnectionStatusChanged)
             this._onConnectionStatusChanged(false);
@@ -532,7 +564,6 @@ class ChannelsSDK {
     }
 
     _onClosed(event) {
-        console.log(event);
         this._isConnected = false;
         this._log("Connection closed!");
 
@@ -562,7 +593,6 @@ class ChannelsSDK {
 
         if (notify) {
             request.setId(this._getNextRequestID());
-            console.log(request);
         }
 
         request.setEventtype(eventType);
@@ -582,6 +612,7 @@ class ChannelsSDK {
     }
 }
 
+// Export classes
 exports.ChannelsSDK = ChannelsSDK;
 exports.Channel = Channel;
 exports.NewEvent = channels.NewEvent;
