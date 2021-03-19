@@ -1,8 +1,8 @@
 {
   "name": "channels_sdk",
-  "version": "1.0.0",
+  "version": "1.0.5",
   "description": "Channels SDK for communicating with the ChannelsServer",
-  "main": "channelevent.js",
+  "main": "channelsSDK.js",
   "dependencies": {
     "google-protobuf": "^3.15.6"
   },
@@ -11,5 +11,13 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Lisomatrix",
-  "license": "ISC"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lisomatrix/ChannelsSDK_JS.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Lisomatrix/ChannelsSDK_JS/issues"
+  },
+  "homepage": "https://github.com/Lisomatrix/ChannelsSDK_JS#readme"
 }

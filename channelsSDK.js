@@ -12,27 +12,28 @@ const ClientLeave = channels.ClientLeave;
 
 class Channel {
 
-    _extra = "";
-    _channelID = "";
-    _isClosed = false;
-    _isPresence = false;
-    _isPersistent = false;
-    _isPresence = false;
-    _isPrivate = false;
-    _name = "";
-    _createdAt = -1;
-
-    _presenceStatus = new Map();
-
-    _channelsSDK = null;
-
-    _onMessage = null;
-    _onInitialStatusUpdateCB = null;
-    _onOnlineStatusUpdateCB = null;
-    _onJoinChannelCB = null;
-    _onLeaveChannelCB = null;
-
     constructor(channelsSDK, data) {
+
+        this._extra = "";
+        this._channelID = "";
+        this._isClosed = false;
+        this._isPresence = false;
+        this._isPersistent = false;
+        this._isPresence = false;
+        this._isPrivate = false;
+        this._name = "";
+        this._createdAt = -1;
+
+        this._presenceStatus = new Map();
+
+        this._channelsSDK = null;
+
+        this._onMessage = null;
+        this._onInitialStatusUpdateCB = null;
+        this._onOnlineStatusUpdateCB = null;
+        this._onJoinChannelCB = null;
+        this._onLeaveChannelCB = null;
+
         this._extra = data.extra;
         this._channelID = data.id;
         this._isClosed = data.isClosed;
@@ -190,26 +191,28 @@ class Channel {
 
 class ChannelsSDK {
 
-    _token = '';
-    _appID = '';
-    _url = '';
-    _events = [];
-    _acks = {};
-    _isConnected = false;
-    _requestID = 1;
-    _ws;
-    _isSecure = true;
-
-    _channels = [];
-
-    _logPrefix = "ChannelsSDK: ";
-
-    _onConnectionStatusChanged = null;
-
-    _onChannelRemoved = null;
-    _onChannelAdded = null;
 
     constructor(initParams) {
+
+        this._token = '';
+        this._appID = '';
+        this._url = '';
+        this._events = [];
+        this._acks = {};
+        this._isConnected = false;
+        this._requestID = 1;
+        this._ws;
+        this._isSecure = true;
+
+        this._channels = [];
+
+        this._logPrefix = "ChannelsSDK: ";
+
+        this._onConnectionStatusChanged = null;
+
+        this._onChannelRemoved = null;
+        this._onChannelAdded = null;
+
         this._token = initParams.token;
         this._appID = initParams.appID;
         this._url = initParams.url;
@@ -228,11 +231,11 @@ class ChannelsSDK {
         this._onConnectionStatusChanged = onConnectionStatusChanged;
         const prefix = this._isSecure ? "wss" : "ws";
 
-        let finalURL = prefix + this._url 
-        + "/optimized?Authorization=" 
-        + this._token 
-        + "&AppID=" 
-        + this._appID;
+        let finalURL = prefix + this._url
+            + "/optimized?Authorization="
+            + this._token
+            + "&AppID="
+            + this._appID;
 
         if (deviceID != "") {
             finalURL += "&DeviceID=" + deviceID
@@ -272,7 +275,7 @@ class ChannelsSDK {
         if (cb != null) {
             this._acks[request.getId()] = cb;
         }
-            
+
         const newEvent = this._createNewEvent(NewEvent.NewEventType.PUBLISH, request.serializeBinary());
         this.send(newEvent);
     }
@@ -285,14 +288,14 @@ class ChannelsSDK {
         }
 
         const requestData = subscribeRequest.serializeBinary();
-    
+
         let newEvent = this._createNewEvent(NewEvent.NewEventType.SUBSCRIBE, requestData);
-    
+
         this.send(newEvent);
     }
 
     getChannel(id) {
-        for(let i = 0; i < this._channels.length; ++i) {
+        for (let i = 0; i < this._channels.length; ++i) {
             const channel = this._channels[i];
             if (channel.getID() === id) {
                 return channel;
@@ -335,7 +338,7 @@ class ChannelsSDK {
     }
 
     async fetchLastChannelEventsSince(channelID, amount, timestamp) {
-        const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount  + '/last/' + timestamp);
+        const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount + '/last/' + timestamp);
 
         let events = (await (await fetch(request)).json()).events;
 
@@ -387,9 +390,9 @@ class ChannelsSDK {
 
     _onMessage(event) {
         const newEvent = NewEvent.deserializeBinary(event.data);
-        
+
         console.log(newEvent);
-        
+
         switch (newEvent.getType()) {
             case NewEvent.NewEventType.ACK: {
                 const ack = PublishAck.deserializeBinary(newEvent.getPayload());
@@ -479,7 +482,7 @@ class ChannelsSDK {
             case NewEvent.NewEventType.REMOVE_CHANNEL: {
                 const channelID = new TextDecoder().decode(newEvent.getPayload());
                 this._log("Client lost access to channel " + channelID);
-                
+
                 for (let i = 0; i < this._channels.length; ++i) {
                     const channel = this._channels[i];
 
@@ -523,7 +526,7 @@ class ChannelsSDK {
         this._events.forEach(event => {
             this._ws.send(event.serializeBinary());
         });
-        
+
         if (this._onConnectionStatusChanged)
             this._onConnectionStatusChanged(true);
     }
@@ -556,7 +559,7 @@ class ChannelsSDK {
 
     _createPublishRequest(eventType, channelID, payload, notify) {
         let request = new PublishRequest()
-        
+
         if (notify) {
             request.setId(this._getNextRequestID());
             console.log(request);
@@ -578,43 +581,15 @@ class ChannelsSDK {
         return request;
     }
 }
-// channelsSDK._log("Subscribed to " + 123);
 
-let channelsSDK = new ChannelsSDK({ 
-    url: '://192.168.1.2:8090',
-    appID: '123',
-    token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJSb2xlIjoiQWRtaW4iLCJDbGllbnRJRCI6IjEyMyIsIkFwcElEIjoiMTIzIn0.szFy2V7MNWNuATsI-9VAdF8GDNolaQyZplSSLBLFc4o',
-    secure: false
-});
-
-channelsSDK.connect(""/*DeviceID (empty to auto generate)*/);
-
-channelsSDK.fetchPublicChannels().then(channels => {
-    let channel = channelsSDK.getChannel("123");
-
-    channel.setOnMessage((msg) => {
-        console.log("NEW MESSAGE:");
-        console.log(msg);
-    });
-
-    channel.subscribe(() => {
-        
-        channel.fetchLastEvents(5).then(events => {
-            console.log(events);
-        });
-
-        channel.fetchLastEventsSince(5, 1615570823).then(events => {
-            console.log(events);
-        });
-
-        channel.fetchEventsSince(1615570823).then(events => {
-            console.log(events);
-        });
-
-        channel.fetchEventsBetween(1615570823, 1615570823).then(events => {
-            console.log(events);
-        });
-
-        channel.publish("test_type", "test_pada", () => console.log("Published"));
-    })
-});
+exports.ChannelsSDK = ChannelsSDK;
+exports.Channel = Channel;
+exports.NewEvent = channels.NewEvent;
+exports.PublishRequest = channels.PublishRequest;
+exports.SubscribeRequest = channels.SubscribeRequest;
+exports.PublishAck = channels.PublishAck;
+exports.ChannelEvent = channels.ChannelEvent;
+exports.InitialPresenceStatus = channels.InitialPresenceStatus;
+exports.OnlineStatusUpdate = channels.OnlineStatusUpdate;
+exports.ClientJoin = channels.ClientJoin;
+exports.ClientLeave = channels.ClientLeave;
