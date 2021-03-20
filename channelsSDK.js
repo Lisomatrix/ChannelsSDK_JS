@@ -154,8 +154,8 @@ class Channel {
 
         this._channelsSDK._log("Client " + clientID + " was removed from channel " + this._channelID);
 
-        if (this._onLeaveChannel)
-            this._onLeaveChannel(clientID);
+        if (this._onLeaveChannelCB)
+            this._onLeaveChannelCB(clientID);
     }
 
     // Get current channel presence data
@@ -214,6 +214,8 @@ class ChannelsSDK {
 
     constructor(initParams) {
 
+        this._isLogEnabled = true;
+
         this._token = '';
         this._appID = '';
         this._url = '';
@@ -237,6 +239,11 @@ class ChannelsSDK {
         this._appID = initParams.appID;
         this._url = initParams.url;
         this._isSecure = initParams.secure;
+    }
+
+    // Activate/Deactivate logs
+    setLogEnabled(isEnabled) {
+        this._isLogEnabled = isEnabled;
     }
 
     // Access to new channel callback
@@ -572,7 +579,8 @@ class ChannelsSDK {
     }
 
     _log(message) {
-        console.log(this._logPrefix + message);
+        if (this._isLogEnabled)
+            console.log(this._logPrefix + message);
     }
 
     _createNewEvent(type, payload) {
