@@ -1,4 +1,4 @@
-var channels = require('./channels_pb.js');
+var channels = require("./channels_pb.js");
 
 // Define publish events
 const NewEvent = channels.NewEvent;
@@ -13,611 +13,707 @@ const ClientLeave = channels.ClientLeave;
 
 // Class that handles channel communication
 class Channel {
+  constructor(channelsSDK, data) {
+    this._extra = "";
+    this._channelID = "";
+    this._isClosed = false;
+    this._isPresence = false;
+    this._isPersistent = false;
+    this._isPresence = false;
+    this._isPrivate = false;
+    this._name = "";
+    this._createdAt = -1;
 
-    constructor(channelsSDK, data) {
+    this._presenceStatus = new Map();
 
-        this._extra = "";
-        this._channelID = "";
-        this._isClosed = false;
-        this._isPresence = false;
-        this._isPersistent = false;
-        this._isPresence = false;
-        this._isPrivate = false;
-        this._name = "";
-        this._createdAt = -1;
+    this._channelsSDK = null;
 
-        this._presenceStatus = new Map();
+    this._onMessage = null;
+    this._onInitialStatusUpdateCB = null;
+    this._onOnlineStatusUpdateCB = null;
+    this._onJoinChannelCB = null;
+    this._onLeaveChannelCB = null;
 
-        this._channelsSDK = null;
+    this._extra = data.extra;
+    this._channelID = data.id;
+    this._isClosed = data.isClosed;
+    this._isPresence = data.isPresence;
+    this._isPrivate = data.isPrivate;
+    this._isPersistent = data.isPersistent;
+    this._name = data.name;
+    this._createdAt = data._createdAt;
 
-        this._onMessage = null;
-        this._onInitialStatusUpdateCB = null;
-        this._onOnlineStatusUpdateCB = null;
-        this._onJoinChannelCB = null;
-        this._onLeaveChannelCB = null;
+    this._channelsSDK = channelsSDK;
+  }
 
-        this._extra = data.extra;
-        this._channelID = data.id;
-        this._isClosed = data.isClosed;
-        this._isPresence = data.isPresence;
-        this._isPrivate = data.isPrivate;
-        this._isPersistent = data.isPersistent;
-        this._name = data.name;
-        this._createdAt = data._createdAt;
+  // Subscribe to given channel
+  subscribe(onSubscribed) {
+    this._channelsSDK.subscribe(this._channelID, (isOK) => {
+      if (isOK) this._channelsSDK._log("Subscribed to " + this._channelID);
+      else this._channelsSDK._log("Failed to subscribe to " + this._channelID);
 
-        this._channelsSDK = channelsSDK;
+      if (onSubscribed) onSubscribed(isOK);
+    });
+  }
+
+  // Publish event into channel
+  // If no callback given, then event won't be stored
+  publish(eventType, payload, cb) {
+    this._channelsSDK.publish(this._channelID, eventType, payload, cb);
+  }
+
+  // Channel events callback
+  setOnMessage(onMessage) {
+    this._onMessage = onMessage;
+  }
+
+  // Channel Initial status update
+  setOnInitialStatusUpdate(onInitialStatusUpdate) {
+    this._onInitialStatusUpdateCB = onInitialStatusUpdate;
+  }
+
+  // Channel status updates changes
+  setOnOnlineStatusUpdate(onOnlineStatusUpdateCB) {
+    this._onOnlineStatusUpdateCB = onOnlineStatusUpdateCB;
+  }
+
+  // When a user joins callback
+  setOnJoin(onJoinCB) {
+    this._onJoinChannelCB = onJoinCB;
+  }
+
+  // When a user leaves callback
+  setOnLeave(onLeaveCB) {
+    this._onLeaveChannelCB = onLeaveCB;
+  }
+
+  _onMessageReceived(message) {
+    if (this._onMessage)
+      this._onMessage({
+        senderID: message.getSenderid(),
+        eventType: message.getEventtype(),
+        payload: message.getPayload(),
+        channelID: message.getChannelid(),
+        timestamp: message.getTimestamp(),
+      });
+  }
+
+  _onInitialStatusUpdate(initialStatusUpdate) {
+    const clientStatus = initialStatusUpdate.getClientstatusMap();
+
+    clientStatus.forEach((val, key) => {
+      this._presenceStatus.set(key, {
+        status: val.getStatus(),
+        timestamp: val.getTimestamp(),
+      });
+    });
+
+    this._channelsSDK._log(
+      "Channel " + this._channelID + " initial online status received!"
+    );
+
+    if (this._onInitialStatusUpdateCB) {
+      this._onInitialStatusUpdateCB();
     }
+  }
 
-    // Subscribe to given channel
-    subscribe(onSubscribed) {
+  _onOnlineStatusUpdate(onlineStatusUpdate) {
+    const clientID = onlineStatusUpdate.getClientid();
 
-        this._channelsSDK.subscribe(this._channelID, () => {
-            this._channelsSDK._log("Subscribed to " + this._channelID);
-            if (onSubscribed)
-                onSubscribed();
-        });
+    this._presenceStatus.set(clientID, {
+      status: onlineStatusUpdate.getStatus(),
+      timestamp: onlineStatusUpdate.getTimestamp(),
+    });
+
+    this._channelsSDK._log(
+      "Channel " + this._channelID + " online status update received!"
+    );
+
+    if (this._onOnlineStatusUpdateCB) {
+      this._onOnlineStatusUpdateCB({
+        clientID,
+        status: onlineStatusUpdate.getStatus(),
+        timestamp: onlineStatusUpdate.getTimestamp(),
+      });
     }
+  }
 
-    // Publish event into channel
-    // If no callback given, then event won't be stored
-    publish(eventType, payload, cb) {
-        this._channelsSDK.publish(this._channelID, eventType, payload, cb);
-    }
+  _onJoinChannel(joinChannel) {
+    const clientID = joinChannel.getClientid();
 
-    // Channel events callback
-    setOnMessage(onMessage) {
-        this._onMessage = onMessage;
-    }
+    this._presenceStatus.set(clientID, 0);
 
-    // Channel Initial status update
-    setOnInitialStatusUpdate(onInitialStatusUpdate) {
-        this._onInitialStatusUpdateCB = onInitialStatusUpdate;
-    }
+    this._channelsSDK._log(
+      "Client " + clientID + " joined channel " + this._channelID
+    );
 
-    // Channel status updates changes
-    setOnOnlineStatusUpdate(onOnlineStatusUpdateCB) {
-        this._onOnlineStatusUpdateCB = onOnlineStatusUpdateCB;
-    }
+    if (this._onJoinChannelCB) this._onJoinChannelCB(clientID);
+  }
 
-    // When a user joins callback
-    setOnJoin(onJoinCB) {
-        this._onJoinChannelCB = onJoinCB;
-    }
+  _onLeaveChannel(leaveChannel) {
+    const clientID = leaveChannel.getClientid();
 
-    // When a user leaves callback
-    setOnLeave(onLeaveCB) {
-        this._onLeaveChannelCB = onLeaveCB;
-    }
+    this._presenceStatus.delete(clientID);
 
-    _onMessageReceived(message) {
-        if (this._onMessage)
-            this._onMessage({
-                senderID: message.getSenderid(),
-                eventType: message.getEventtype(),
-                payload: message.getPayload(),
-                channelID: message.getChannelid(),
-                timestamp: message.getTimestamp()
-            })
-    }
+    this._channelsSDK._log(
+      "Client " + clientID + " was removed from channel " + this._channelID
+    );
 
-    _onInitialStatusUpdate(initialStatusUpdate) {
-        const clientStatus = initialStatusUpdate.getClientstatusMap();
+    if (this._onLeaveChannelCB) this._onLeaveChannelCB(clientID);
+  }
 
-        clientStatus.forEach((val, key) => {
-            this._presenceStatus.set(key, {
-                status: val.getStatus(),
-                timestamp: val.getTimestamp()
-            })
-        });
+  // Get current channel presence data
+  getPresenceStatus() {
+    return this._presenceStatus;
+  }
 
-        this._channelsSDK._log("Channel " + this._channelID + " initial online status received!");
+  // Get channelID
+  getID() {
+    return this._channelID;
+  }
 
-        if (this._onInitialStatusUpdateCB) {
-            this._onInitialStatusUpdateCB();
-        }
-    }
+  // Is channel closed
+  isClosed() {
+    return this._isClosed;
+  }
 
-    _onOnlineStatusUpdate(onlineStatusUpdate) {
-        const clientID = onlineStatusUpdate.getClientid();
+  // Is channel persistent
+  isPersistent() {
+    return this._isPersistent;
+  }
 
-        this._presenceStatus.set(clientID, {
-            status: onlineStatusUpdate.getStatus(),
-            timestamp: onlineStatusUpdate.getTimestamp()
-        })
+  // Is channel private
+  isPrivate() {
+    return this._isPrivate;
+  }
 
-        this._channelsSDK._log("Channel " + this._channelID + " online status update received!");
+  // Does channel have presence
+  isPresence() {
+    return this._isPresence;
+  }
 
-        if (this._onOnlineStatusUpdateCB) {
-            this._onOnlineStatusUpdateCB({
-                clientID,
-                status: onlineStatusUpdate.getStatus(),
-                timestamp: onlineStatusUpdate.getTimestamp()
-            })
-        }
-    }
+  // Get last X events
+  fetchLastEvents(amount) {
+    return this._channelsSDK.fetchLastChannelEvents(this._channelID, amount);
+  }
 
-    _onJoinChannel(joinChannel) {
-        const clientID = joinChannel.getClientid();
+  // Get last X event since given timestamp
+  fetchLastEventsSince(amount, timestamp) {
+    return this._channelsSDK.fetchLastChannelEventsSince(
+      this._channelID,
+      amount,
+      timestamp
+    );
+  }
 
-        this._presenceStatus.set(clientID, 0);
+  // Get last X event before given timestamp
+  fetchLastEventsBefore(amount, timestamp) {
+    return this._channelsSDK.fetchLastChannelEventsBefore(
+      this._channelID,
+      amount,
+      timestamp
+    );
+  }
 
-        this._channelsSDK._log("Client " + clientID + " joined channel " + this._channelID);
+  // Get all events since given timestamp
+  fetchEventsSince(timestamp) {
+    return this._channelsSDK.fetchChannelEventsSince(
+      this._channelID,
+      timestamp
+    );
+  }
 
-        if (this._onJoinChannelCB)
-            this._onJoinChannelCB(clientID);
-    }
-
-    _onLeaveChannel(leaveChannel) {
-        const clientID = leaveChannel.getClientid();
-
-        this._presenceStatus.delete(clientID);
-
-        this._channelsSDK._log("Client " + clientID + " was removed from channel " + this._channelID);
-
-        if (this._onLeaveChannelCB)
-            this._onLeaveChannelCB(clientID);
-    }
-
-    // Get current channel presence data
-    getPresenceStatus() {
-        return this._presenceStatus;
-    }
-
-    // Get channelID
-    getID() {
-        return this._channelID;
-    }
-
-    // Is channel closed
-    isClosed() {
-        return this._isClosed;
-    }
-
-    // Is channel persistent
-    isPersistent() {
-        return this._isPersistent;
-    }
-
-    // Is channel private
-    isPrivate() {
-        return this._isPrivate;
-    }
-
-    // Does channel have presence
-    isPresence() {
-        return this._isPresence;
-    }
-
-    // Get last X events
-    fetchLastEvents(amount) {
-        return this._channelsSDK.fetchLastChannelEvents(this._channelID, amount);
-    }
-
-    // Get last X event since given timestamp
-    fetchLastEventsSince(amount, timestamp) {
-        return this._channelsSDK.fetchLastChannelEventsSince(this._channelID, amount, timestamp)
-    }
-
-    // Get all events since given timestamp
-    fetchEventsSince(timestamp) {
-        return this._channelsSDK.fetchChannelEventsSince(this._channelID, timestamp);
-    }
-
-    // Get events between given timestamps
-    fetchEventsBetween(sinceTimestamp, toTimestamp) {
-        return this._channelsSDK.fetchChannelEventsBetween(this._channelID, sinceTimestamp, toTimestamp)
-    }
+  // Get events between given timestamps
+  fetchEventsBetween(sinceTimestamp, toTimestamp) {
+    return this._channelsSDK.fetchChannelEventsBetween(
+      this._channelID,
+      sinceTimestamp,
+      toTimestamp
+    );
+  }
 }
 
 class ChannelsSDK {
+  constructor(initParams) {
+    this._isLogEnabled = true;
 
+    this._token = "";
+    this._appID = "";
+    this._url = "";
+    this._events = [];
+    this._acks = {};
+    this._isConnected = false;
+    this._requestID = 1;
+    this._ws;
+    this._isSecure = true;
 
-    constructor(initParams) {
+    this._channels = [];
 
-        this._isLogEnabled = true;
+    this._logPrefix = "ChannelsSDK: ";
 
-        this._token = '';
-        this._appID = '';
-        this._url = '';
-        this._events = [];
-        this._acks = {};
-        this._isConnected = false;
-        this._requestID = 1;
-        this._ws;
-        this._isSecure = true;
+    this._onConnectionStatusChanged = null;
 
-        this._channels = [];
+    this._onChannelRemoved = null;
+    this._onChannelAdded = null;
 
-        this._logPrefix = "ChannelsSDK: ";
+    this._token = initParams.token;
+    this._appID = initParams.appID;
+    this._url = initParams.url;
+    this._isSecure = initParams.secure;
+  }
 
-        this._onConnectionStatusChanged = null;
+  // Activate/Deactivate logs
+  setLogEnabled(isEnabled) {
+    this._isLogEnabled = isEnabled;
+  }
 
-        this._onChannelRemoved = null;
-        this._onChannelAdded = null;
+  // Access to new channel callback
+  setOnChannelAdded(onChannelAdded) {
+    this._onChannelAdded(onChannelAdded);
+  }
 
-        this._token = initParams.token;
-        this._appID = initParams.appID;
-        this._url = initParams.url;
-        this._isSecure = initParams.secure;
+  // Channel access removed callback
+  setOnChannelRemoved(onChannelRemoved) {
+    this._onChannelRemoved = onChannelRemoved;
+  }
+
+  // Connect to server with given deviceID or just "" for server to generate
+  connect(deviceID, onConnectionStatusChanged) {
+    this._onConnectionStatusChanged = onConnectionStatusChanged;
+    const prefix = this._isSecure ? "wss" : "ws";
+
+    let finalURL =
+      prefix +
+      this._url +
+      "/optimized?Authorization=" +
+      this._token +
+      "&AppID=" +
+      this._appID;
+
+    if (deviceID != "") {
+      finalURL += "&DeviceID=" + deviceID;
     }
 
-    // Activate/Deactivate logs
-    setLogEnabled(isEnabled) {
-        this._isLogEnabled = isEnabled;
+    this._ws = new WebSocket(finalURL);
+    this._ws.binaryType = "arraybuffer";
+
+    this._ws.onopen = (openEvent) => {
+      this._onConnected(openEvent);
+    };
+
+    this._ws.onclose = (closeEvent) => {
+      this._onClosed(closeEvent);
+    };
+
+    this._ws.onmessage = (messageEvent) => {
+      this._onMessage(messageEvent);
+    };
+
+    this._ws.onerror = (errorEvent) => {
+      this._onError(errorEvent);
+    };
+  }
+
+  // Send event to server
+  send(newEvent) {
+    if (this._isConnected) {
+      this._ws.send(newEvent.serializeBinary());
+    } else {
+      this._events.push(newEvent);
+    }
+  }
+
+  // Publish event to channel
+  publish(channelID, eventType, payload, cb) {
+    const request = this._createPublishRequest(
+      eventType,
+      channelID,
+      payload,
+      cb != null
+    );
+
+    if (cb != null) {
+      this._acks[request.getId()] = cb;
     }
 
-    // Access to new channel callback
-    setOnChannelAdded(onChannelAdded) {
-        this._onChannelAdded(onChannelAdded);
+    const newEvent = this._createNewEvent(
+      NewEvent.NewEventType.PUBLISH,
+      request.serializeBinary()
+    );
+    this.send(newEvent);
+  }
+
+  // Subscribe to channel
+  subscribe(channelID, cb) {
+    let subscribeRequest = this._createSubscribeRequest(channelID);
+
+    if (cb != null) {
+      this._acks[subscribeRequest.getId()] = cb;
     }
 
-    // Channel access removed callback
-    setOnChannelRemoved(onChannelRemoved) {
-        this._onChannelRemoved = onChannelRemoved;
+    const requestData = subscribeRequest.serializeBinary();
+
+    let newEvent = this._createNewEvent(
+      NewEvent.NewEventType.SUBSCRIBE,
+      requestData
+    );
+
+    this.send(newEvent);
+  }
+
+  // Get channel by it's ID, first you should get private
+  // and public channels
+  getChannel(id) {
+    for (let i = 0; i < this._channels.length; ++i) {
+      const channel = this._channels[i];
+      if (channel.getID() === id) {
+        return channel;
+      }
     }
 
-    // Connect to server with given deviceID or just "" for server to generate
-    connect(deviceID, onConnectionStatusChanged) {
-        this._onConnectionStatusChanged = onConnectionStatusChanged;
-        const prefix = this._isSecure ? "wss" : "ws";
+    return null;
+  }
 
-        let finalURL = prefix + this._url
-            + "/optimized?Authorization="
-            + this._token
-            + "&AppID="
-            + this._appID;
+  // Register given channel info
+  registerChannel(channelInfo) {
+    const channel = new Channel(this, channelInfo);
+    this._channels.push(channel);
 
-        if (deviceID != "") {
-            finalURL += "&DeviceID=" + deviceID
+    return channel;
+  }
+
+  // Update token
+  setToken(token) {
+    this._token = token;
+  }
+
+  // Fetch all app public channels
+  async fetchPublicChannels() {
+    const request = this._prepareRequest("GET", "/channel/open");
+
+    let channs = (await (await fetch(request)).json()).channels;
+
+    channs.forEach((chann) => {
+      this._channels.push(new Channel(this, chann));
+    });
+
+    return channs;
+  }
+
+  // Fetch user private channels
+  async fetchPrivateChannels() {
+    const request = this._prepareRequest("GET", "/channel/private");
+
+    let channs = (await (await fetch(request)).json()).channels;
+
+    channs.forEach((chann) => {
+      this._channels.push(new Channel(this, chann));
+    });
+
+    return channs;
+  }
+
+  // Get last X events from channel
+  async fetchLastChannelEvents(channelID, amount) {
+    const request = this._prepareRequest(
+      "GET",
+      "/last/" + channelID + "/" + amount
+    );
+
+    let events = (await (await fetch(request)).json()).events;
+
+    events.sort(function (a, b) {
+      return a.timestamp - b.timestamp;
+    });
+
+    return events;
+  }
+
+  // Get last X events from channel since given timestamp
+  async fetchLastChannelEventsSince(channelID, amount, timestamp) {
+    const request = this._prepareRequest(
+      "GET",
+      "/last/" + channelID + "/" + amount + "/last/" + timestamp
+    );
+
+    let events = (await (await fetch(request)).json()).events;
+
+    events.sort(function (a, b) {
+      return a.timestamp - b.timestamp;
+    });
+
+    return events;
+  }
+
+  // Get last X events from channel before given timestamp
+  async fetchLastChannelEventsBefore(channelID, amount, timestamp) {
+    const request = this._prepareRequest(
+      "GET",
+      "/last/" + channelID + "/" + amount + "/before/" + timestamp
+    );
+
+    let events = (await (await fetch(request)).json()).events;
+
+    events.sort(function (a, b) {
+      return a.timestamp - b.timestamp;
+    });
+
+    return events;
+  }
+
+  // Get events from channel since given timestamp
+  async fetchChannelEventsSince(channelID, timestamp) {
+    const request = this._prepareRequest(
+      "GET",
+      "/c/" + channelID + "/sync/" + timestamp
+    );
+
+    let events = (await (await fetch(request)).json()).events;
+
+    events.sort(function (a, b) {
+      return a.timestamp - b.timestamp;
+    });
+
+    return events;
+  }
+
+  // Get events from channel between given timestamps
+  async fetchChannelEventsBetween(channelID, sinceTimestamp, toTimestamp) {
+    const request = this._prepareRequest(
+      "GET",
+      "/sync/" + channelID + "/" + sinceTimestamp + "/to/" + toTimestamp
+    );
+
+    let events = (await (await fetch(request)).json()).events;
+
+    events.sort(function (a, b) {
+      return a.timestamp - b.timestamp;
+    });
+
+    return events;
+  }
+
+  // Publish event into channel
+  async publishToChannel(channelID, eventType, payload) {
+    const request = this._prepareRequest(
+      "POST",
+      "/channel/" + channelID + "/publish/"
+    );
+    request.body = JSON.stringify({
+      eventType,
+      payload,
+    });
+
+    await fetch(request);
+  }
+
+  _prepareRequest(method, suffix) {
+    let headers = new Headers();
+    headers.set("AppID", this._appID);
+    headers.set("Authorization", this._token);
+
+    let init = {
+      method: method,
+      headers: headers,
+    };
+
+    const prefix = this._isSecure ? "https" : "http";
+
+    let request = new Request(prefix + this._url + suffix, init);
+
+    return request;
+  }
+
+  _onMessage(event) {
+    const newEvent = NewEvent.deserializeBinary(event.data);
+
+    switch (newEvent.getType()) {
+      case NewEvent.NewEventType.ACK: {
+        const ack = PublishAck.deserializeBinary(newEvent.getPayload());
+        this._log("ACK Received for ID: " + ack.getReplyto());
+
+        let cb = this._acks[ack.getReplyto()];
+        
+        if (cb) {
+          cb(ack.getStatus());
         }
 
-        this._ws = new WebSocket(finalURL);
-        this._ws.binaryType = 'arraybuffer';
+        delete this._acks[ack.getReplyto()];
 
-        this._ws.onopen = (openEvent) => {
-            this._onConnected(openEvent);
-        }
+        break;
+      }
 
-        this._ws.onclose = (closeEvent) => {
-            this._onClosed(closeEvent);
-        }
+      case NewEvent.NewEventType.PUBLISH: {
+        const event = ChannelEvent.deserializeBinary(newEvent.getPayload());
 
-        this._ws.onmessage = (messageEvent) => {
-            this._onMessage(messageEvent);
-        }
+        const channelID = event.getChannelid();
 
-        this._ws.onerror = (errorEvent) => {
-            this._onError(errorEvent);
-        }
-    }
+        this._channels.forEach((chan) => {
+          if (chan.getID() === channelID) {
+            chan._onMessageReceived(event);
+          }
+        });
 
-    // Send event to server
-    send(newEvent) {
-        if (this._isConnected) {
-            this._ws.send(newEvent.serializeBinary())
-        } else {
-            this._events.push(newEvent);
-        }
-    }
+        break;
+      }
 
-    // Publish event to channel
-    publish(channelID, eventType, payload, cb) {
-        const request = this._createPublishRequest(eventType, channelID, payload, cb != null);
+      case NewEvent.NewEventType.INITIAL_ONLINE_STATUS: {
+        const initialPresenceStatus = InitialPresenceStatus.deserializeBinary(
+          newEvent.getPayload()
+        );
 
-        if (cb != null) {
-            this._acks[request.getId()] = cb;
-        }
+        const channelID = initialPresenceStatus.getChannelid();
 
-        const newEvent = this._createNewEvent(NewEvent.NewEventType.PUBLISH, request.serializeBinary());
-        this.send(newEvent);
-    }
+        this._channels.forEach((chan) => {
+          if (chan.getID() === channelID) {
+            chan._onInitialStatusUpdate(initialPresenceStatus);
+          }
+        });
 
-    // Subscribe to channel
-    subscribe(channelID, cb) {
-        let subscribeRequest = this._createSubscribeRequest(channelID);
+        break;
+      }
 
-        if (cb != null) {
-            this._acks[subscribeRequest.getId()] = cb;
-        }
+      case NewEvent.NewEventType.ONLINE_STATUS: {
+        const onlineStatusUpdate = OnlineStatusUpdate.deserializeBinary(
+          newEvent.getPayload()
+        );
 
-        const requestData = subscribeRequest.serializeBinary();
+        const channelID = onlineStatusUpdate.getChannelid();
 
-        let newEvent = this._createNewEvent(NewEvent.NewEventType.SUBSCRIBE, requestData);
+        this._channels.forEach((chan) => {
+          if (chan.getID() === channelID) {
+            chan._onOnlineStatusUpdate(onlineStatusUpdate);
+          }
+        });
 
-        this.send(newEvent);
-    }
+        break;
+      }
 
-    // Get channel by it's ID, first you should get private
-    // and public channels
-    getChannel(id) {
+      case NewEvent.NewEventType.JOIN_CHANNEL: {
+        const clientJoin = ClientJoin.deserializeBinary(newEvent.getPayload());
+
+        const channelID = clientJoin.getChannelid();
+
+        this._channels.forEach((chan) => {
+          if (chan.getID() === channelID) {
+            chan._onJoinChannel(clientJoin);
+          }
+        });
+
+        break;
+      }
+
+      case NewEvent.NewEventType.LEAVE_CHANNEL: {
+        const clientLeave = ClientLeave.deserializeBinary(
+          newEvent.getPayload()
+        );
+
+        const channelID = clientLeave.getChannelid();
+
+        this._channels.forEach((chan) => {
+          if (chan.getID() === channelID) {
+            chan._onLeaveChannel(clientLeave);
+          }
+        });
+
+        break;
+      }
+
+      case NewEvent.NewEventType.REMOVE_CHANNEL: {
+        const channelID = new TextDecoder().decode(newEvent.getPayload());
+        this._log("Client lost access to channel " + channelID);
+
         for (let i = 0; i < this._channels.length; ++i) {
-            const channel = this._channels[i];
-            if (channel.getID() === id) {
-                return channel;
-            }
+          const channel = this._channels[i];
+
+          if (channel.getID() === channelID) {
+            this._channels.splice(i, 1);
+            break;
+          }
         }
 
-        return null;
+        if (this._onChannelRemoved) this._onChannelRemoved(channelID);
+
+        break;
+      }
+
+      case NewEvent.NewEventType.NEW_CHANNEL: {
+        const channelID = new TextDecoder().decode(newEvent.getPayload());
+        this._log("Client acquired access to channel " + channelID);
+
+        if (this._onChannelAdded) this._onChannelAdded(channelID);
+
+        break;
+      }
+    }
+  }
+
+  _onError(event) {
+    this._isConnected = false;
+    this._log(
+      "Connection error, code: " + event.code + " reason: " + event.reason
+    );
+
+    if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(false);
+  }
+
+  _onConnected(event) {
+    this._isConnected = true;
+    this._log("Connection established!");
+
+    this._events.forEach((event) => {
+      this._ws.send(event.serializeBinary());
+    });
+
+    if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(true);
+  }
+
+  _onClosed(event) {
+    this._isConnected = false;
+    this._log("Connection closed!");
+
+    if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(false);
+  }
+
+  _log(message) {
+    if (this._isLogEnabled) console.log(this._logPrefix + message);
+  }
+
+  _createNewEvent(type, payload) {
+    let newEvent = new NewEvent();
+    newEvent.setType(type);
+    newEvent.setPayload(payload);
+
+    return newEvent;
+  }
+
+  _getNextRequestID() {
+    this._requestID++;
+    return this._requestID;
+  }
+
+  _createPublishRequest(eventType, channelID, payload, notify) {
+    let request = new PublishRequest();
+
+    if (notify) {
+      request.setId(this._getNextRequestID());
     }
 
-    // Fetch all app public channels
-    async fetchPublicChannels() {
-        const request = this._prepareRequest('GET', '/channel/open');
+    request.setEventtype(eventType);
+    request.setChannelid(channelID);
+    request.setPayload(payload);
 
-        let channs = (await (await fetch(request)).json()).channels;
+    return request;
+  }
 
-        channs.forEach(chann => {
-            this._channels.push(new Channel(this, chann));
-        });
+  _createSubscribeRequest(channelID) {
+    let request = new SubscribeRequest();
 
-        return channs;
-    }
+    request.setId(this._getNextRequestID());
+    request.setChannelid(channelID);
 
-    // Fetch user private channels
-    async fetchPrivateChannels() {
-        const request = this._prepareRequest('GET', '/channel/private');
-
-        let channs = (await (await fetch(request)).json()).channels;
-
-        channs.forEach(chann => {
-            this._channels.push(new Channel(this, chann));
-        });
-
-        return channs;
-    }
-
-    // Get last X events from channel
-    async fetchLastChannelEvents(channelID, amount) {
-        const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount);
-
-        let events = (await (await fetch(request)).json()).events;
-
-        return events;
-    }
-
-    // Get last X events from channel since given timestamp
-    async fetchLastChannelEventsSince(channelID, amount, timestamp) {
-        const request = this._prepareRequest('GET', '/last/' + channelID + '/' + amount + '/last/' + timestamp);
-
-        let events = (await (await fetch(request)).json()).events;
-
-        return events;
-    }
-
-    // Get events from channel since given timestamp
-    async fetchChannelEventsSince(channelID, timestamp) {
-        const request = this._prepareRequest('GET', '/c/' + channelID + '/sync/' + timestamp);
-
-        let events = (await (await fetch(request)).json()).events;
-
-        return events;
-    }
-
-    // Get events from channel between given timestamps
-    async fetchChannelEventsBetween(channelID, sinceTimestamp, toTimestamp) {
-        const request = this._prepareRequest('GET', '/sync/' + channelID + '/' + sinceTimestamp + "/to/" + toTimestamp);
-
-        let events = (await (await fetch(request)).json()).events;
-
-        return events;
-    }
-
-    // Publish event into channel
-    async publishToChannel(channelID, eventType, payload) {
-        const request = this._prepareRequest('POST', '/channel/' + channelID + '/publish/');
-        request.body = JSON.stringify({
-            eventType,
-            payload
-        });
-
-        (await fetch(request));
-    }
-
-    _prepareRequest(method, suffix) {
-        let headers = new Headers();
-        headers.set("AppID", this._appID);
-        headers.set("Authorization", this._token);
-
-        let init = {
-            method: method,
-            headers: headers
-        };
-
-        const prefix = this._isSecure ? "https" : "http";
-
-        let request = new Request(prefix + this._url + suffix, init);
-
-        return request;
-    }
-
-    _onMessage(event) {
-        const newEvent = NewEvent.deserializeBinary(event.data);
-
-        switch (newEvent.getType()) {
-            case NewEvent.NewEventType.ACK: {
-                const ack = PublishAck.deserializeBinary(newEvent.getPayload());
-                this._log("ACK Received for ID: " + ack.getReplyto());
-
-                let cb = this._acks[ack.getReplyto()];
-
-                if (cb) {
-                    cb();
-                }
-
-                delete this._acks[ack.getReplyto()];
-
-                break;
-            }
-
-            case NewEvent.NewEventType.PUBLISH: {
-                const event = ChannelEvent.deserializeBinary(newEvent.getPayload());
-
-                const channelID = event.getChannelid();
-
-                this._channels.forEach(chan => {
-                    if (chan.getID() === channelID) {
-                        chan._onMessageReceived(event);
-                    }
-                });
-
-                break;
-            }
-
-            case NewEvent.NewEventType.INITIAL_ONLINE_STATUS: {
-                const initialPresenceStatus = InitialPresenceStatus.deserializeBinary(newEvent.getPayload());
-
-                const channelID = initialPresenceStatus.getChannelid();
-
-                this._channels.forEach(chan => {
-                    if (chan.getID() === channelID) {
-                        chan._onInitialStatusUpdate(initialPresenceStatus);
-                    }
-                });
-
-                break;
-            }
-
-            case NewEvent.NewEventType.ONLINE_STATUS: {
-                const onlineStatusUpdate = OnlineStatusUpdate.deserializeBinary(newEvent.getPayload());
-
-                const channelID = onlineStatusUpdate.getChannelid();
-
-                this._channels.forEach(chan => {
-                    if (chan.getID() === channelID) {
-                        chan._onOnlineStatusUpdate(onlineStatusUpdate);
-                    }
-                });
-
-                break;
-            }
-
-            case NewEvent.NewEventType.JOIN_CHANNEL: {
-                const clientJoin = ClientJoin.deserializeBinary(newEvent.getPayload());
-
-                const channelID = clientJoin.getChannelid();
-
-                this._channels.forEach(chan => {
-                    if (chan.getID() === channelID) {
-                        chan._onJoinChannel(clientJoin);
-                    }
-                });
-
-                break;
-            }
-
-            case NewEvent.NewEventType.LEAVE_CHANNEL: {
-                const clientLeave = ClientLeave.deserializeBinary(newEvent.getPayload());
-
-                const channelID = clientLeave.getChannelid();
-
-                this._channels.forEach(chan => {
-                    if (chan.getID() === channelID) {
-                        chan._onLeaveChannel(clientLeave);
-                    }
-                });
-
-                break;
-            }
-
-            case NewEvent.NewEventType.REMOVE_CHANNEL: {
-                const channelID = new TextDecoder().decode(newEvent.getPayload());
-                this._log("Client lost access to channel " + channelID);
-
-                for (let i = 0; i < this._channels.length; ++i) {
-                    const channel = this._channels[i];
-
-                    if (channel.getID() === channelID) {
-                        this._channels.splice(i, 1);
-                        break;
-                    }
-                }
-
-                if (this._onChannelRemoved)
-                    this._onChannelRemoved(channelID)
-
-                break;
-            }
-
-            case NewEvent.NewEventType.NEW_CHANNEL: {
-                const channelID = new TextDecoder().decode(newEvent.getPayload());
-                this._log("Client acquired access to channel " + channelID);
-
-                if (this._onChannelAdded)
-                    this._onChannelAdded(channelID)
-
-                break;
-            }
-        }
-    }
-
-    _onError(event) {
-        this._isConnected = false;
-        this._log("Connection error, code: " + event.code + " reason: " + event.reason);
-
-        if (this._onConnectionStatusChanged)
-            this._onConnectionStatusChanged(false);
-    }
-
-    _onConnected(event) {
-        this._isConnected = true;
-        this._log("Connection established!");
-
-        this._events.forEach(event => {
-            this._ws.send(event.serializeBinary());
-        });
-
-        if (this._onConnectionStatusChanged)
-            this._onConnectionStatusChanged(true);
-    }
-
-    _onClosed(event) {
-        this._isConnected = false;
-        this._log("Connection closed!");
-
-        if (this._onConnectionStatusChanged)
-            this._onConnectionStatusChanged(false);
-    }
-
-    _log(message) {
-        if (this._isLogEnabled)
-            console.log(this._logPrefix + message);
-    }
-
-    _createNewEvent(type, payload) {
-        let newEvent = new NewEvent();
-        newEvent.setType(type);
-        newEvent.setPayload(payload)
-
-        return newEvent;
-    }
-
-    _getNextRequestID() {
-        this._requestID++;
-        return this._requestID;
-    }
-
-    _createPublishRequest(eventType, channelID, payload, notify) {
-        let request = new PublishRequest()
-
-        if (notify) {
-            request.setId(this._getNextRequestID());
-        }
-
-        request.setEventtype(eventType);
-        request.setChannelid(channelID);
-        request.setPayload(payload);
-
-        return request;
-    }
-
-    _createSubscribeRequest(channelID) {
-        let request = new SubscribeRequest();
-
-        request.setId(this._getNextRequestID());
-        request.setChannelid(channelID);
-
-        return request;
-    }
+    return request;
+  }
 }
 
 // Export classes

@@ -1,6 +1,6 @@
 {
   "name": "channels_sdk",
-  "version": "1.0.7",
+  "version": "1.0.13",
   "description": "Channels SDK for communicating with the ChannelsServer",
   "main": "channelsSDK.js",
   "dependencies": {
