@@ -52,7 +52,10 @@ class Channel {
       if (isOK) this._channelsSDK._log("Subscribed to " + this._channelID);
       else this._channelsSDK._log("Failed to subscribe to " + this._channelID);
 
-      if (onSubscribed) onSubscribed(isOK);
+      if (onSubscribed) {
+        this._channelsSDK._addSubscribed(this._channelID)
+        onSubscribed(isOK);
+      } 
     });
   }
 
@@ -248,6 +251,7 @@ class ChannelsSDK {
     this._isSecure = true;
 
     this._channels = [];
+    this._subscribed = [];
 
     this._logPrefix = "ChannelsSDK: ";
 
@@ -343,8 +347,19 @@ class ChannelsSDK {
     this.send(newEvent);
   }
 
+  _addSubscribed(channelID) {
+      this._subscribed.push(channelID);
+  }
+
   // Subscribe to channel
   subscribe(channelID, cb) {
+    for (let i = 0; i < this._subscribed.length; i++) {
+      if (this._subscribed[i] === channelID) {
+        this._log("Already subscribed to " + channelID);
+        return;
+      }
+    }
+
     let subscribeRequest = this._createSubscribeRequest(channelID);
 
     if (cb != null) {
@@ -533,7 +548,7 @@ class ChannelsSDK {
         this._log("ACK Received for ID: " + ack.getReplyto());
 
         let cb = this._acks[ack.getReplyto()];
-        
+
         if (cb) {
           cb(ack.getStatus());
         }
