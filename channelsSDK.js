@@ -273,7 +273,7 @@ class ChannelsSDK {
 
   // Access to new channel callback
   setOnChannelAdded(onChannelAdded) {
-    this._onChannelAdded(onChannelAdded);
+    this._onChannelAdded = onChannelAdded;
   }
 
   // Channel access removed callback
