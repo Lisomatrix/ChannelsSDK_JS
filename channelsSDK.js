@@ -28,11 +28,13 @@ class Channel {
 
     this._channelsSDK = null;
 
+    this._lastMessageTimestamp = -1;
     this._onMessage = null;
     this._onInitialStatusUpdateCB = null;
     this._onOnlineStatusUpdateCB = null;
     this._onJoinChannelCB = null;
     this._onLeaveChannelCB = null;
+    this._onSubscribedCB = null;
 
     this._extra = data.extra;
     this._channelID = data.id;
@@ -42,19 +44,60 @@ class Channel {
     this._isPersistent = data.isPersistent;
     this._name = data.name;
     this._createdAt = data._createdAt;
+    this._isSubscribed = false;
+
+    this._isResubscribing = false;
+    
 
     this._channelsSDK = channelsSDK;
   }
 
+  // Called by SDK when a reconnection happens
+  _resubscribe() {
+    this._isResubscribing = true;
+    this.subscribe(this._onSubscribedCB);
+  }
+
+  // When the SDK is disconnected, we change the presence status
+  _onDisconnected() {
+    // Since we are not receiveing presence data
+    // We clear it and call the initial callback
+    this._presenceStatus.clear();
+    this._isSubscribed = false;
+
+    if (this._onInitialStatusUpdateCB) {
+      this._onInitialStatusUpdateCB();
+    }
+  }
+
   // Subscribe to given channel
   subscribe(onSubscribed) {
+    this._onSubscribedCB = onSubscribed; 
+
     this._channelsSDK.subscribe(this._channelID, (isOK) => {
-      if (isOK) this._channelsSDK._log("Subscribed to " + this._channelID);
+
+      if (this._isResubscribing && isOK) {
+
+        if (this._lastMessageTimestamp !== -1) {
+          this.fetchEventsSince(this._lastMessageTimestamp).then((events) => {
+            if (this._onMessage) {
+              events.forEach((event) => this._onMessage(event));
+            }
+          });
+        }
+
+        this._channelsSDK._log("Re-Subscribed to " + this._channelID);
+      } else if (isOK) this._channelsSDK._log("Subscribed to " + this._channelID);
       else this._channelsSDK._log("Failed to subscribe to " + this._channelID);
 
-      if (onSubscribed) {
+      if (this._onSubscribedCB) {
+
+        if (isOK) {
+          this._isSubscribed = true;
+        }
+
         this._channelsSDK._addSubscribed(this._channelID)
-        onSubscribed(isOK);
+        this._onSubscribedCB(isOK);
       } 
     });
   }
@@ -92,6 +135,8 @@ class Channel {
 
   _onMessageReceived(message) {
     if (this._onMessage)
+      this._lastMessageTimestamp = message.getTimestamp();
+      
       this._onMessage({
         senderID: message.getSenderid(),
         eventType: message.getEventtype(),
@@ -239,7 +284,6 @@ class Channel {
 class ChannelsSDK {
   constructor(initParams) {
     this._isLogEnabled = true;
-
     this._token = "";
     this._appID = "";
     this._url = "";
@@ -248,11 +292,28 @@ class ChannelsSDK {
     this._isConnected = false;
     this._requestID = 1;
     this._ws;
+    this._deviceID = "";
     this._isSecure = true;
+
+    // Auto reconnect settings
+    this._autoReconnect = true;
+    this._reconnectTimeout = 300; // ms
+    this._reconnectAttempt = 0;
+    this._reconnecting = false;
+    this._shouldRestoreSubscriptions = true;
+    this._isRestoringSubscriptions = false;
+    
+    if (initParams.autoReconnect) {
+      this._autoReconnect = initParams.autoReconnect;
+    }
+
+    if (initParams.shouldRestoreSubscriptions) {
+      this._shouldRestoreSubscriptions = initParams.shouldRestoreSubscriptions;
+    }
 
     this._channels = [];
     this._subscribed = [];
-
+    
     this._logPrefix = "ChannelsSDK: ";
 
     this._onConnectionStatusChanged = null;
@@ -282,7 +343,7 @@ class ChannelsSDK {
   }
 
   // Connect to server with given deviceID or just "" for server to generate
-  connect(deviceID, onConnectionStatusChanged) {
+  connect(onConnectionStatusChanged) {
     this._onConnectionStatusChanged = onConnectionStatusChanged;
     const prefix = this._isSecure ? "wss" : "ws";
 
@@ -294,7 +355,7 @@ class ChannelsSDK {
       "&AppID=" +
       this._appID;
 
-    if (deviceID != "") {
+    if (this._deviceID != "") {
       finalURL += "&DeviceID=" + deviceID;
     }
 
@@ -348,15 +409,20 @@ class ChannelsSDK {
   }
 
   _addSubscribed(channelID) {
+    if (!this._subscribed.includes(channelID)) {
       this._subscribed.push(channelID);
+      console.log(this._subscribed);
+    }
   }
 
   // Subscribe to channel
   subscribe(channelID, cb) {
-    for (let i = 0; i < this._subscribed.length; i++) {
-      if (this._subscribed[i] === channelID) {
-        this._log("Already subscribed to " + channelID);
-        return;
+    if (!this._isRestoringSubscriptions) {
+      for (let i = 0; i < this._subscribed.length; i++) {
+        if (this._subscribed[i] === channelID) {
+          this._log("Already subscribed to " + channelID);
+          return;
+        }
       }
     }
 
@@ -665,9 +731,16 @@ class ChannelsSDK {
 
   _onError(event) {
     this._isConnected = false;
-    this._log(
-      "Connection error, code: " + event.code + " reason: " + event.reason
-    );
+
+    if (event.code && event.reason) {
+      this._log(
+        "Connection error, code: " + event.code + " reason: " + event.reason
+      );
+    } else {
+      this._log(
+        "Connection error"
+      );
+    }
 
     if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(false);
   }
@@ -681,13 +754,65 @@ class ChannelsSDK {
     });
 
     if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(true);
+
+    this._reconnectAttempt = 0;
+    this._reconnecting = false;
+
+    if (this._shouldRestoreSubscriptions) {
+      this._isRestoringSubscriptions = true;
+      for (let i = 0; i < this._subscribed.length; ++i) {
+        const channel = this.getChannel(this._subscribed[i]);
+  
+        if (channel) {
+          channel._resubscribe();
+        }
+      }
+      this._isRestoringSubscriptions = false;
+    }
   }
 
   _onClosed(event) {
     this._isConnected = false;
-    this._log("Connection closed!");
+    
+    if (this._reconnecting) {
+      this._log("Reconnecting attempt " + this._reconnectAttempt + " failed!");
+    } else {
+      this._log("Connection closed!");
+    }
+
+    if (!this._reconnecting) {
+      this._log("Resetting presence status");
+      for (let i = 0; i < this._subscribed.length; ++i) {
+        const channel = this.getChannel(this._subscribed[i]);
+  
+        if (channel) {
+          channel._onDisconnected();
+        }
+      }
+    }
 
     if (this._onConnectionStatusChanged) this._onConnectionStatusChanged(false);
+
+    if (this._autoReconnect) {
+      this._reconnectAttempt++;
+      this._attemptReconnect();
+    }
+  }
+
+  _attemptReconnect() {
+    if (!this._autoReconnect) return;
+
+    this._reconnecting = true;
+
+    this._log("Attempting to reconnect for the " + this._reconnectAttempt + " time in " + (this._reconnectTimeout * this._reconnectAttempt) + " ms");
+    setTimeout(() => {
+
+      if (this._isConnected) return;
+
+      this._log("Attempting to reconnect for the " + this._reconnectAttempt + " time");
+      this.connect(this._deviceID, this._onConnectionStatusChanged);
+
+    }, this._reconnectTimeout * this._reconnectAttempt); // 200ms * attemptCount
   }
 
   _log(message) {
